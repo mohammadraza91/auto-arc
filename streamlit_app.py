@@ -82,12 +82,30 @@ def run_python_file(pyfile: Path, timeout_sec: int = 60) -> subprocess.Completed
 	return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_sec, text=True)
 
 
-def find_outputs(suffixes=(".dxf", ".png", ".svg")):
+def find_outputs(suffixes=(".dxf", ".png", ".svg", ".csv", ".json", ".html", ".txt", ".py")):
 	files = []
 	for p in WORK_DIR.iterdir():
 		if p.is_file() and p.suffix.lower() in suffixes:
 			files.append(p)
-	return sorted(files)
+	return sorted(files, key=lambda x: x.stat().st_mtime, reverse=True)  # Most recent first
+
+
+def add_to_session_history(prompt: str, content_type: str, code: str, success: bool):
+	"""Add generation to session history."""
+	if "generation_history" not in st.session_state:
+		st.session_state.generation_history = []
+	
+	history_entry = {
+		"timestamp": time.time(),
+		"prompt": prompt,
+		"content_type": content_type,
+		"code": code,
+		"success": success
+	}
+	st.session_state.generation_history.insert(0, history_entry)  # Add to beginning
+	# Keep only last 10 generations
+	if len(st.session_state.generation_history) > 10:
+		st.session_state.generation_history = st.session_state.generation_history[:10]
 
 
 def preview_dxf_image(dxf_path: Path, dpi: int = 120) -> bytes:
@@ -124,19 +142,85 @@ def zip_work_dir() -> bytes:
 	return buf.read()
 
 
+def detect_content_type(user_prompt: str) -> str:
+	"""Detect what type of content the user wants to generate based on keywords."""
+	prompt_lower = user_prompt.lower()
+	
+	# CAD/DXF related keywords
+	cad_keywords = ['floor plan', 'dxf', 'cad', 'drawing', 'blueprint', 'architecture', 'building', 'room', 'plot', 'setback', 'floor', 'plan']
+	# Data analysis keywords
+	data_keywords = ['data', 'analysis', 'chart', 'graph', 'visualization', 'plot', 'statistics', 'pandas', 'numpy', 'matplotlib', 'seaborn']
+	# Web app keywords
+	web_keywords = ['web app', 'website', 'streamlit', 'flask', 'django', 'html', 'css', 'javascript', 'frontend', 'backend']
+	# General Python keywords
+	python_keywords = ['python', 'script', 'function', 'class', 'algorithm', 'automation', 'tool']
+	
+	if any(keyword in prompt_lower for keyword in cad_keywords):
+		return "cad"
+	elif any(keyword in prompt_lower for keyword in data_keywords):
+		return "data_analysis"
+	elif any(keyword in prompt_lower for keyword in web_keywords):
+		return "web_app"
+	elif any(keyword in prompt_lower for keyword in python_keywords):
+		return "python_script"
+	else:
+		return "general"
+
+
+def get_system_instruction(content_type: str) -> str:
+	"""Get appropriate system instruction based on content type."""
+	if content_type == "cad":
+		return (
+			"You are an expert Python CAD assistant. Generate a single self-contained Python script "
+			"that uses the ezdxf library to create a DXF floor plan according to the user's prompt. "
+			"Requirements: (1) Use feet as drawing units and consistent coordinates. (2) Include plot outline, "
+			"setbacks, labeled rooms, and any requested features. (3) Save to a DXF file named 'plan.dxf' in the current working directory. "
+			"(4) Do not include placeholders; write runnable code only. (5) Avoid long commentary; keep code clean. "
+		)
+	elif content_type == "data_analysis":
+		return (
+			"You are an expert Python data analysis assistant. Generate a single self-contained Python script "
+			"that performs data analysis according to the user's prompt. "
+			"Requirements: (1) Use appropriate libraries (pandas, numpy, matplotlib, seaborn, etc.). "
+			"(2) Include data loading, processing, visualization, and analysis. (3) Save outputs as appropriate files. "
+			"(4) Write clean, well-commented code. (5) Include error handling where appropriate. "
+		)
+	elif content_type == "web_app":
+		return (
+			"You are an expert Python web development assistant. Generate a single self-contained Python script "
+			"that creates a web application according to the user's prompt. "
+			"Requirements: (1) Use appropriate frameworks (Streamlit, Flask, Django, etc.). "
+			"(2) Include proper UI/UX design. (3) Handle user interactions and data processing. "
+			"(4) Write clean, modular code. (5) Include proper error handling and validation. "
+		)
+	elif content_type == "python_script":
+		return (
+			"You are an expert Python developer. Generate a single self-contained Python script "
+			"that accomplishes the task described in the user's prompt. "
+			"Requirements: (1) Use appropriate Python libraries and best practices. "
+			"(2) Write clean, efficient, and well-documented code. (3) Include proper error handling. "
+			"(4) Make the code modular and reusable where appropriate. "
+		)
+	else:  # general
+		return (
+			"You are an expert Python developer. Generate a single self-contained Python script "
+			"that accomplishes the task described in the user's prompt. "
+			"Requirements: (1) Use appropriate Python libraries. (2) Write clean, efficient code. "
+			"(3) Include proper error handling. (4) Make the code practical and runnable. "
+		)
+
+
 def default_system_instruction() -> str:
-	return (
-		"You are an expert Python CAD assistant. Generate a single self-contained Python script "
-		"that uses the ezdxf library to create a DXF floor plan according to the user's prompt. "
-		"Requirements: (1) Use feet as drawing units and consistent coordinates. (2) Include plot outline, "
-		"setbacks, labeled rooms, and any requested features. (3) Save to a DXF file named 'plan.dxf' in the current working directory. "
-		"(4) Do not include placeholders; write runnable code only. (5) Avoid long commentary; keep code clean. "
-	)
+	"""Legacy function for backward compatibility."""
+	return get_system_instruction("cad")
 
 
 def build_prompt(user_prompt: str) -> str:
+	content_type = detect_content_type(user_prompt)
+	system_instruction = get_system_instruction(content_type)
+	
 	return (
-		f"{default_system_instruction()}\n\n"
+		f"{system_instruction}\n\n"
 		f"User requirements:\n{user_prompt}\n\n"
 		"Return only Python code inside a fenced code block."
 	)
@@ -193,14 +277,29 @@ def sanitize_generated_code(code: str) -> str:
 		"ezdxf.units.M_FEET": "ezdxf.units.FT",
 		"ezdxf.units.FEET": "ezdxf.units.FT",
 		"ezdxf.units.FOOT": "ezdxf.units.FT",
+		"ezdxf.units.M_FOOT": "ezdxf.units.FT",  # Fix the specific error
 		"ezdxf.units.METERS": "ezdxf.units.M",
 		"ezdxf.units.METER": "ezdxf.units.M",
 		"ezdxf.units.INCHES": "ezdxf.units.IN",
 		"ezdxf.units.INCH": "ezdxf.units.IN",
 		"MTextParagraphAlignment": "MTextEntityAlignment",
+		"Measurement.ENGLISH": "Measurement.Imperial",
+		"Measurement.METRIC": "Measurement.Metric",
 	}
 	for a, b in replacements.items():
 		code = code.replace(a, b)
+
+	# Fix incorrect header unit assignments - replace with proper doc.units assignment
+	code = re.sub(r"doc\.header\['\$INSUNITS'\]\s*=\s*ezdxf\.units\.FT",
+				  r"doc.units = ezdxf.units.FT",
+				  code)
+	code = re.sub(r"doc\.header\['\$INSUNITS'\]\s*=\s*4",
+				  r"doc.units = ezdxf.units.FT",
+				  code)
+	# Fix the specific M_FOOT error
+	code = re.sub(r"doc\.header\['\$INSUNITS'\]\s*=\s*ezdxf\.units\.M_FOOT",
+				  r"doc.units = ezdxf.units.FT",
+				  code)
 
 	# Comment out unsupported doc.units assignments if any remain
 	code = re.sub(r"^(\s*doc\.units\s*=\s*ezdxf\.units\.[A-Za-z_]+\s*)$",
@@ -238,6 +337,24 @@ def sanitize_generated_code(code: str) -> str:
 				  r"align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER",
 				  code)
 
+	# Fix text positioning methods
+	code = re.sub(r"\.set_pos\(",
+				  r".set_placement(",
+				  code)
+	
+	# Fix text alignment strings to use proper enum
+	code = re.sub(r"align\s*=\s*['\"]CENTER['\"]",
+				  r"align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER",
+				  code)
+	code = re.sub(r"align\s*=\s*['\"]MIDDLE_CENTER['\"]",
+				  r"align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER",
+				  code)
+
+	# Remove invalid layer attributes
+	code = re.sub(r"dxfattribs\s*=\s*\{[^}]*'font'[^}]*\}",
+				  r"dxfattribs={'color': 5}",
+				  code)
+
 	return code
 
 
@@ -246,7 +363,27 @@ def main():
 	st.title(APP_TITLE)
 	ui_sidebar()
 
-	st.write("Describe your floor plan in natural language. The app will ask Gemini to generate a Python script that creates a DXF and then preview it.")
+	st.write("Describe what you want to create in natural language. The app will automatically detect the type of content and ask Gemini to generate appropriate Python code.")
+
+	# Show example prompts for different content types
+	with st.expander("💡 Example prompts for different content types"):
+		st.markdown("""
+		**CAD/Floor Plans:**
+		- "Create a floor plan for a 40x60 ft plot with 2 bedrooms, kitchen, and living room"
+		- "Design a simple house layout with parking and garden"
+		
+		**Data Analysis:**
+		- "Analyze sales data and create visualizations showing trends"
+		- "Create a dashboard for stock market data with charts"
+		
+		**Web Applications:**
+		- "Create a simple todo list web app with Streamlit"
+		- "Build a calculator web application"
+		
+		**Python Scripts:**
+		- "Create a file organizer that sorts files by type"
+		- "Build a password generator with customizable options"
+		""")
 
 	default_prompt = (
 		"Create a floor plan for a 40x60 ft plot, 8 ft front setback and 4 ft on other sides, "
@@ -254,12 +391,31 @@ def main():
 		"1 parking, 1 garden, and a staircase near the front-right."
 	)
 	user_prompt = st.text_area("Your prompt", value=default_prompt, height=140)
+	
+	# Show detected content type
+	if user_prompt:
+		content_type = detect_content_type(user_prompt)
+		type_emojis = {
+			"cad": "🏗️",
+			"data_analysis": "📊", 
+			"web_app": "🌐",
+			"python_script": "🐍",
+			"general": "⚙️"
+		}
+		type_names = {
+			"cad": "CAD/Floor Plan",
+			"data_analysis": "Data Analysis",
+			"web_app": "Web Application", 
+			"python_script": "Python Script",
+			"general": "General Python"
+		}
+		st.info(f"{type_emojis.get(content_type, '⚙️')} Detected content type: **{type_names.get(content_type, 'General')}**")
 
 	col1, col2 = st.columns([1, 1])
 	with col1:
-		generate = st.button("Generate DXF with Gemini", type="primary")
+		generate = st.button("🚀 Generate Code with Gemini", type="primary")
 	with col2:
-		preview_btn = st.button("Preview latest DXF")
+		preview_btn = st.button("👁️ Preview Latest Output")
 
 	api_key = get_api_key()
 	if generate:
@@ -272,7 +428,11 @@ def main():
 			preferred = st.session_state.get("gemini_model_name", MODEL_CANDIDATES[0])
 			model, active_model = get_model_with_fallback(genai, preferred)
 			st.caption(f"Using model: {active_model}")
+			
+			# Detect content type and build appropriate prompt
+			content_type = detect_content_type(user_prompt)
 			prompt = build_prompt(user_prompt)
+			
 			try:
 				resp = model.generate_content(prompt)
 			except Exception as e:
@@ -290,36 +450,74 @@ def main():
 					st.stop()
 			text = resp.text or ""
 			code = extract_python_code(text)
-			code = sanitize_generated_code(code)
-
-			pyfile = write_user_code(code, filename="generated_plan.py")
+			
+			# Apply content-specific sanitization
+			if content_type == "cad":
+				code = sanitize_generated_code(code)
+			
+			# Generate appropriate filename based on content type
+			filename_map = {
+				"cad": "generated_plan.py",
+				"data_analysis": "data_analysis.py", 
+				"web_app": "web_app.py",
+				"python_script": "script.py",
+				"general": "generated_code.py"
+			}
+			filename = filename_map.get(content_type, "generated_code.py")
+			
+			pyfile = write_user_code(code, filename=filename)
 			st.code(code, language="python")
 
-		with st.spinner("Running generated Python to produce DXF..."):
+		with st.spinner(f"Running generated {content_type} code..."):
 			try:
 				proc = run_python_file(pyfile)
 				stdout = proc.stdout
 				stderr = proc.stderr
-				if proc.returncode != 0:
+				success = proc.returncode == 0
+				
+				# Add to session history
+				add_to_session_history(user_prompt, content_type, code, success)
+				
+				if not success:
 					st.error("Script failed. See stderr below.")
 					st.code(stderr or "(no stderr)", language="bash")
 				else:
-					st.success("Script executed successfully.")
+					st.success(f"✅ {content_type.replace('_', ' ').title()} code executed successfully!")
 					if stdout:
 						st.code(stdout, language="bash")
 			except subprocess.TimeoutExpired:
 				st.error("Script timed out.")
+				add_to_session_history(user_prompt, content_type, code, False)
+
+	# Show session history
+	if "generation_history" in st.session_state and st.session_state.generation_history:
+		with st.expander("📚 Generation History", expanded=False):
+			for i, entry in enumerate(st.session_state.generation_history[:5]):  # Show last 5
+				status_emoji = "✅" if entry["success"] else "❌"
+				content_emoji = {
+					"cad": "🏗️", "data_analysis": "📊", "web_app": "🌐", 
+					"python_script": "🐍", "general": "⚙️"
+				}.get(entry["content_type"], "⚙️")
+				
+				st.markdown(f"""
+				**{status_emoji} {content_emoji} {entry['content_type'].replace('_', ' ').title()}**  
+				*{entry['prompt'][:100]}{'...' if len(entry['prompt']) > 100 else ''}*
+				""")
 
 	# Always show available outputs
 	outputs = find_outputs()
 	if outputs:
-		st.subheader("Outputs in work dir")
+		st.subheader("📁 Generated Files")
 		for p in outputs:
-			st.write(f"- {p.name}")
+			file_emoji = {
+				".dxf": "🏗️", ".png": "🖼️", ".svg": "🎨", ".csv": "📊", 
+				".json": "📋", ".html": "🌐", ".txt": "📄", ".py": "🐍"
+			}.get(p.suffix.lower(), "📄")
+			st.write(f"{file_emoji} {p.name}")
 
-		# Show preview of the newest DXF
+		# Show preview of the newest DXF (if any)
 		latest_dxf = None
-		for p in reversed(outputs):
+		for p in outputs:
 			if p.suffix.lower() == ".dxf":
 				latest_dxf = p
 				break
@@ -361,7 +559,7 @@ def main():
 				else:
 					st.warning("Could not open file automatically. Please open the downloaded file in AutoCAD manually.")
 	else:
-		st.info("No outputs yet. Click 'Generate DXF with Gemini' to start.")
+		st.info("No outputs yet. Click '🚀 Generate Code with Gemini' to start creating!")
 
 
 if __name__ == "__main__":

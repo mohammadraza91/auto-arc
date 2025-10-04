@@ -1,0 +1,2 @@
+# This file ensures the work_dir directory is tracked by git
+# Generated files will be ignored but the directory structure is preserved
