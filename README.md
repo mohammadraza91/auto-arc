@@ -10,6 +10,7 @@ Auto ARC is an intelligent Streamlit application that uses Google Gemini AI to g
 - **Automatic Classification**: Detects CAD, data analysis, web apps, Python scripts, and general code
 - **Context-Aware Generation**: Uses appropriate libraries and patterns for each content type
 - **Keyword Recognition**: Analyzes your description to determine the best approach
+- **Auto-Execution**: Generated code automatically runs and creates output files
 
 ### 🏗️ CAD & Floor Plans
 - **DXF Generation**: Creates professional CAD drawings with ezdxf
@@ -17,6 +18,8 @@ Auto ARC is an intelligent Streamlit application that uses Google Gemini AI to g
 - **Layer Management**: Organized drawing layers for different elements
 - **Live Preview**: Visual preview of generated DXF files
 - **AutoCAD Integration**: Direct opening in AutoCAD (Windows)
+- **Auto-Execution**: Generated CAD code automatically runs and creates DXF files
+- **Multi-Version Support**: Works with AutoCAD 2020-2024
 
 ### 📊 Data Analysis & Visualization
 - **Pandas Integration**: Data manipulation and analysis scripts
@@ -48,6 +51,28 @@ Auto ARC is an intelligent Streamlit application that uses Google Gemini AI to g
 - **Data Files**: CSV, JSON exports
 - **Web Files**: HTML applications
 - **Python Scripts**: Executable code files
+
+## 🔧 Recent Fixes & Improvements
+
+### ✅ **Fixed DXF Generation Issues**
+- **Problem**: Generated Python code wasn't automatically executing to create DXF files
+- **Solution**: Enhanced code sanitization to ensure all CAD code includes proper main execution blocks
+- **Result**: DXF files are now automatically created when you generate floor plans
+
+### ✅ **Enhanced AutoCAD Integration**
+- **Problem**: DXF files weren't opening directly in AutoCAD
+- **Solution**: Improved AutoCAD detection and integration with multiple version support
+- **Result**: One-click opening in AutoCAD 2020-2024 with automatic file association
+
+### ✅ **Improved Code Execution**
+- **Problem**: Generated code sometimes failed to run due to missing execution blocks
+- **Solution**: Smart code sanitization that automatically adds `if __name__ == '__main__':` blocks
+- **Result**: All generated code now runs successfully and creates output files
+
+### ✅ **Better User Experience**
+- **Problem**: No feedback on DXF file creation status
+- **Solution**: Added real-time status updates and file creation verification
+- **Result**: Clear feedback showing when DXF files are created and ready to use
 
 ## 🚀 Quick Start
 
@@ -117,13 +142,15 @@ Simply describe what you want to create in natural language:
 
 ### 3. Generate & Iterate
 - Click "🚀 Generate Code with Gemini"
-- Review the generated code
-- Check execution results and outputs
+- **Code automatically runs** and creates output files
+- Review the generated code and execution results
+- **For CAD content**: DXF files are automatically created
 - Use generation history to iterate
 
 ### 4. Download & Use
+- **For Floor Plans**: Click "🪟 Open in AutoCAD" to view in AutoCAD
 - Download individual files or all outputs as ZIP
-- Open DXF files in AutoCAD (Windows)
+- **AutoCAD Integration**: Direct opening in AutoCAD 2020-2024
 - Run generated Python scripts
 - Deploy web applications
 
@@ -258,6 +285,30 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Streamlit**: Web application framework
 - **ezdxf**: CAD file generation library
 - **Open Source Community**: For the amazing Python ecosystem
+
+## 🔧 Troubleshooting
+
+### Common Issues & Solutions
+
+#### **DXF Files Not Created**
+- **Issue**: Generated code runs but no DXF file appears
+- **Solution**: Check that your prompt includes CAD keywords (floor plan, dxf, cad, etc.)
+- **Verification**: Look for "DXF file created successfully!" message in output
+
+#### **AutoCAD Not Opening**
+- **Issue**: "Open in AutoCAD" button doesn't work
+- **Solution**: Ensure AutoCAD is installed and associated with .dxf files
+- **Alternative**: Download the DXF file and open manually
+
+#### **Code Execution Errors**
+- **Issue**: Generated code fails to run
+- **Solution**: The app now automatically fixes common ezdxf issues
+- **Fallback**: Try rephrasing your prompt or simplifying the request
+
+#### **Preview Not Showing**
+- **Issue**: DXF preview doesn't display
+- **Solution**: Preview requires matplotlib - DXF files still work in AutoCAD
+- **Alternative**: Use "Open in AutoCAD" for full viewing
 
 ## 📞 Support
 
