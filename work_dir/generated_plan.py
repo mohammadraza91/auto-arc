@@ -1,166 +1,197 @@
 import ezdxf
 
-# --- Constants for Plot Dimensions and Wall Thickness ---
-PLOT_WIDTH = 30.0  # feet
-PLOT_LENGTH = 40.0 # feet
-WALL_THICKNESS = 0.5 # feet (6 inches) - Used conceptually for spacing, not drawn explicitly as double lines
+# --- Constants for Drawing Units and Layers ---
+# All dimensions are in feet.
+WALL_THICKNESS = 0.5  # 6 inches
+TEXT_HEIGHT = 1.0     # Height of room labels
 
-# --- Document Setup ---
-doc = ezdxf.new("R2010") # DXF R2010 format
-msp = doc.modelspace()
+LAYER_PLOT_OUTLINE = "PLOT_OUTLINE"
+LAYER_WALLS = "WALLS"
+LAYER_ROOM_LABELS = "ROOM_LABELS"
 
-# Set drawing units to feet (INSUNITS=13 for feet)
-# This primarily informs CAD software how to interpret drawing units.
-doc.header["$INSUNUNITS"] = 13 # 13 for feet
-doc.header["$MEASUREMENT"] = 0 # 0 for Imperial
+COLOR_PLOT_OUTLINE = 7  # White/Black
+COLOR_WALLS = 1         # Red
+COLOR_ROOM_LABELS = 4   # Cyan
 
-# Define Layers
-doc.layers.new("PLOT_BOUNDARY", dxfattribs={"color": 1})     # Red
-doc.layers.new("WALLS", dxfattribs={"color": 7})             # White/Black
-doc.layers.new("ROOM_LABELS", dxfattribs={"color": 4})       # Cyan
-doc.layers.new("DOORS_WINDOWS", dxfattribs={"color": 3})     # Green
-doc.layers.new("DIMENSIONS", dxfattribs={"color": 2})        # Yellow
+# --- House and Plot Dimensions (in feet) ---
+# Plot Dimensions: A reasonable size for a 3BHK house.
+PLOT_WIDTH = 70.0
+PLOT_DEPTH = 50.0
 
-# --- Plot Outline ---
-# Draw the outer boundary of the plot as a closed LWPOLYLINE from (0,0)
-boundary_coords = [
+# House Dimensions (overall footprint, including outer walls)
+HOUSE_WIDTH = 50.0
+HOUSE_DEPTH = 30.0
+
+# Setbacks (space from plot boundary to house boundary)
+# Defines where the house is placed within the plot.
+SETBACK_FRONT = 15.0  # From Plot bottom (Y=0) to House bottom
+SETBACK_REAR = 5.0    # From House top to Plot top
+SETBACK_LEFT = 10.0   # From Plot left (X=0) to House left
+SETBACK_RIGHT = 10.0  # From House right to Plot right
+
+# Calculate house origin relative to plot (0,0)
+HOUSE_ORIGIN_X = SETBACK_LEFT
+HOUSE_ORIGIN_Y = SETBACK_FRONT
+
+# Derived inner house boundaries (clear space inside outer walls)
+INNER_HOUSE_X_START = HOUSE_ORIGIN_X + WALL_THICKNESS
+INNER_HOUSE_Y_START = HOUSE_ORIGIN_Y + WALL_THICKNESS
+INNER_HOUSE_X_END = HOUSE_ORIGIN_X + HOUSE_WIDTH - WALL_THICKNESS
+INNER_HOUSE_Y_END = HOUSE_ORIGIN_Y + HOUSE_DEPTH - WALL_THICKNESS
+
+# --- Room Layout Definition ---
+# Layout strategy: Front section for a large living room,
+# rear section for 3 bedrooms and 1 common washroom.
+
+# 1. Living Room (front section)
+LIVING_ROOM_CLEAR_DEPTH = 15.0 # Internal clear depth for the living room
+LIVING_ROOM_CLEAR_WIDTH = INNER_HOUSE_X_END - INNER_HOUSE_X_START # Spans full inner house width
+
+# Top Y coordinate for the living room (excluding the wall above it)
+LR_TOP_Y = INNER_HOUSE_Y_START + LIVING_ROOM_CLEAR_DEPTH
+
+# 2. Rear Section (3 Bedrooms + 1 Common Washroom)
+# This section starts after the living room and its separating wall.
+REAR_SECTION_START_Y = LR_TOP_Y + WALL_THICKNESS
+
+# Calculate available depth for rear rooms:
+# Total inner depth - Living room depth - Wall separating LR
+REAR_SECTION_CLEAR_DEPTH = INNER_HOUSE_Y_END - REAR_SECTION_START_Y
+
+# Calculate available width for rear rooms:
+# Spans full inner house width, same as living room.
+REAR_SECTION_CLEAR_WIDTH = INNER_HOUSE_X_END - INNER_HOUSE_X_START # 49 ft
+
+# Distribute REAR_SECTION_CLEAR_WIDTH (49 ft) among 3 bedrooms (12.5 ft each)
+# and 1 washroom (10 ft), plus 3 internal walls (0.5 ft each).
+# Total clear width for rooms = 3 * 12.5 + 10 = 37.5 + 10 = 47.5 ft
+# Total wall thickness = 3 * 0.5 = 1.5 ft
+# Total required width = 47.5 + 1.5 = 49 ft. This fits perfectly.
+
+ROOM_BED1_CLEAR_WIDTH = 12.5
+ROOM_BED2_CLEAR_WIDTH = 12.5
+ROOM_BED3_CLEAR_WIDTH = 12.5
+ROOM_WASHROOM_CLEAR_WIDTH = 10.0
+ROOM_COMMON_CLEAR_DEPTH = REAR_SECTION_CLEAR_DEPTH # All rear rooms have this depth
+
+# --- Create DXF document ---
+doc = ezdxf.new("R2010")  # Using DXF 2010 format for broad compatibility
+msp = doc.modelspace()    # Get the modelspace
+
+# --- Setup Layers ---
+doc.layers.new(LAYER_PLOT_OUTLINE, dxfattribs={"color": COLOR_PLOT_OUTLINE})
+doc.layers.new(LAYER_WALLS, dxfattribs={"color": COLOR_WALLS})
+doc.layers.new(LAYER_ROOM_LABELS, dxfattribs={"color": COLOR_ROOM_LABELS})
+
+# --- 1. Draw Plot Outline ---
+# The plot starts at (0,0) for simplicity.
+plot_points = [
     (0, 0),
     (PLOT_WIDTH, 0),
-    (PLOT_WIDTH, PLOT_LENGTH),
-    (0, PLOT_LENGTH),
-    (0, 0) # Close the loop
+    (PLOT_WIDTH, PLOT_DEPTH),
+    (0, PLOT_DEPTH),
+    (0, 0) # Close the polyline
 ]
-msp.add_lwpolyline(boundary_coords, dxfattribs={"layer": "PLOT_BOUNDARY", "linewidth": 0.2})
+msp.add_lwpolyline(plot_points, dxfattribs={"layer": LAYER_PLOT_OUTLINE})
 
-# --- Helper Functions for Drawing Elements ---
+# --- 2. Draw House Outer Walls ---
+house_outer_points = [
+    (HOUSE_ORIGIN_X, HOUSE_ORIGIN_Y),
+    (HOUSE_ORIGIN_X + HOUSE_WIDTH, HOUSE_ORIGIN_Y),
+    (HOUSE_ORIGIN_X + HOUSE_WIDTH, HOUSE_ORIGIN_Y + HOUSE_DEPTH),
+    (HOUSE_ORIGIN_X, HOUSE_ORIGIN_Y + HOUSE_DEPTH),
+    (HOUSE_ORIGIN_X, HOUSE_ORIGIN_Y) # Close the polyline
+]
+msp.add_lwpolyline(house_outer_points, dxfattribs={"layer": LAYER_WALLS})
 
-def add_wall_segment(p1, p2):
-    """Adds a single line segment representing a wall."""
-    msp.add_line(p1, p2, dxfattribs={"layer": "WALLS"})
+# --- 3. Draw Internal Walls and Labels ---
 
-def add_room_label(text, center_x, center_y, height=1.0):
-    """Adds a text label for a room at a given center point."""
-    msp.add_text(text, dxfattribs={"layer": "ROOM_LABELS", "height": height}).set_placement(
-        (center_x, center_y), align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER)
+# --- Living Room ---
+# Define the bounding box for the clear internal space of the living room
+lr_bl = (INNER_HOUSE_X_START, INNER_HOUSE_Y_START)
+lr_tr = (INNER_HOUSE_X_END, LR_TOP_Y)
 
-def add_door(p1_open, p2_open, swing_direction="in", layer="DOORS_WINDOWS"):
-    """
-    Adds a simplified door symbol (a line across the opening).
-    p1_open, p2_open define the ends of the wall opening.
-    """
-    mid_x = (p1_open[0] + p2_open[0]) / 2
-    mid_y = (p1_open[1] + p2_open[1]) / 2
+# Add label for Living Room
+lr_center_x = (lr_bl[0] + lr_tr[0]) / 2
+lr_center_y = (lr_bl[1] + lr_tr[1]) / 2
+msp.add_mtext(
+    "LIVING ROOM\n{:.1f}' x {:.1f}'".format(
+        LIVING_ROOM_CLEAR_WIDTH, LIVING_ROOM_CLEAR_DEPTH
+    ),
+    dxfattribs={
+        "layer": LAYER_ROOM_LABELS,
+        "char_height": TEXT_HEIGHT,
+        "insert": (lr_center_x, lr_center_y),
+        "attachment_point": 5 # Middle-center alignment
+    }
+)
 
-    # Draw a small line perpendicular to the opening to indicate a door.
-    # This is a very basic representation.
-    if abs(p1_open[0] - p2_open[0]) > abs(p1_open[1] - p2_open[1]): # Horizontal opening
-        msp.add_line((mid_x, mid_y - 0.75), (mid_x, mid_y + 0.75), dxfattribs={"layer": layer})
-    else: # Vertical opening
-        msp.add_line((mid_x - 0.75, mid_y), (mid_x + 0.75, mid_y), dxfattribs={"layer": layer})
+# Draw wall separating Living Room from the rear section
+# This wall is placed at LR_TOP_Y, and extends across the internal house width.
+# Its center line is at LR_TOP_Y + WALL_THICKNESS / 2.
+# So the lines will be drawn at LR_TOP_Y + WALL_THICKNESS
+msp.add_line(
+    (INNER_HOUSE_X_START, REAR_SECTION_START_Y),
+    (INNER_HOUSE_X_END, REAR_SECTION_START_Y),
+    dxfattribs={"layer": LAYER_WALLS}
+)
 
-def add_window(p1_open, p2_open, layer="DOORS_WINDOWS"):
-    """
-    Adds a simplified window symbol (double lines) across an opening.
-    p1_open, p2_open define the ends of the wall opening.
-    """
-    msp.add_line(p1_open, p2_open, dxfattribs={"layer": layer})
-    mid_x = (p1_open[0] + p2_open[0]) / 2
-    mid_y = (p1_open[1] + p2_open[1]) / 2
-    if abs(p1_open[0] - p2_open[0]) > abs(p1_open[1] - p2_open[1]): # Horizontal opening
-        msp.add_line((p1_open[0], mid_y), (p2_open[0], mid_y), dxfattribs={"layer": layer})
-    else: # Vertical opening
-        msp.add_line((mid_x, p1_open[1]), (mid_x, p2_open[1]), dxfattribs={"layer": layer})
+# --- Rear Section: Bedrooms and Washroom ---
+# Start tracking the current X position for placing rooms
+current_x_pos = INNER_HOUSE_X_START
+current_y_pos = REAR_SECTION_START_Y
 
+# List of rooms in the rear section to iterate and draw
+room_definitions = [
+    ("BEDROOM 1", ROOM_BED1_CLEAR_WIDTH, ROOM_COMMON_CLEAR_DEPTH),
+    ("BEDROOM 2", ROOM_BED2_CLEAR_WIDTH, ROOM_COMMON_CLEAR_DEPTH),
+    ("BEDROOM 3", ROOM_BED3_CLEAR_WIDTH, ROOM_COMMON_CLEAR_DEPTH),
+    ("COMMON WASHROOM", ROOM_WASHROOM_CLEAR_WIDTH, ROOM_COMMON_CLEAR_DEPTH),
+]
 
-# --- Internal Floor Plan Layout (2BHK) ---
-# All coordinates are in feet, relative to (0,0) as the bottom-left of the plot.
+# Draw vertical internal walls and labels for each room in the rear section
+for i, (name, width, depth) in enumerate(room_definitions):
+    # Calculate bounding box for the current room's clear space
+    room_bl_x = current_x_pos
+    room_bl_y = current_y_pos
+    room_tr_x = current_x_pos + width
+    room_tr_y = current_y_pos + depth
 
-# Major Partitions
-# Vertical wall at X=18.0, from (18,0) to (18,40)
-add_wall_segment((18, 0), (18, PLOT_LENGTH))
-# Horizontal wall at Y=18.0, from (0,18) to (30,18)
-add_wall_segment((0, 18), (PLOT_WIDTH, 18))
+    # Add label for the room
+    room_center_x = (room_bl_x + room_tr_x) / 2
+    room_center_y = (room_bl_y + room_tr_y) / 2
+    msp.add_mtext(
+        "{}\n{:.1f}' x {:.1f}'".format(name, width, depth),
+        dxfattribs={
+            "layer": LAYER_ROOM_LABELS,
+            "char_height": TEXT_HEIGHT,
+            "insert": (room_center_x, room_center_y),
+            "attachment_point": 5 # Middle-center
+        }
+    )
 
-# 1. Living / Dining Area (18' x 18')
-# Bounding box: (0,0) to (18,18)
-add_room_label("LIVING / DINING", 9, 9, height=1.5)
-add_door((8,0), (10,0)) # Main Entrance (2ft wide)
-add_window((0, 4), (0, 8)) # Window on left wall
+    # Draw vertical wall to the right of the current room (if not the last room)
+    if i < len(room_definitions) - 1:
+        # The wall line is placed immediately after the room's clear width.
+        # Its center will be at (room_tr_x + WALL_THICKNESS / 2).
+        wall_line_x = room_tr_x + WALL_THICKNESS / 2
+        msp.add_line(
+            (wall_line_x, room_bl_y),
+            (wall_line_x, room_tr_y),
+            dxfattribs={"layer": LAYER_WALLS}
+        )
+    
+    # Advance current_x_pos for the next room (includes current room's width + wall thickness)
+    current_x_pos += width
+    if i < len(room_definitions) - 1:
+        current_x_pos += WALL_THICKNESS
 
-# 2. Kitchen (12' x 12')
-# Bounding box: (18,0) to (30,12)
-add_wall_segment((18, 12), (30, 12)) # Top wall of kitchen
-add_room_label("KITCHEN", 24, 6, height=1.0)
-add_door((18, 8), (18, 10)) # Door from Living Area
-add_window((30, 4), (30, 8)) # Window on right wall
+# --- Save the DXF file ---
+filename = "plan.dxf"
+doc.saveas(filename)
+print(f"DXF floor plan '{filename}' created successfully!")
 
-# 3. Common Toilet (6' x 6')
-# Bounding box: (18,12) to (24,18)
-add_wall_segment((24, 12), (24, 18)) # Right wall of common toilet
-add_room_label("C. TOILET", 21, 15, height=0.8)
-add_door((24, 14), (24, 16)) # Door from passage/utility area
-add_window((21, 18), (23, 18)) # Window on top wall
-
-# 4. Utility Area (6' x 6')
-# Bounding box: (24,12) to (30,18)
-add_room_label("UTILITY", 27, 15, height=0.8)
-add_window((30, 14), (30, 16)) # Window on right wall
-
-# 5. Bedroom 2 (18' x 11')
-# Bounding box: (0,18) to (18,29)
-add_wall_segment((0, 29), (18, 29)) # Top wall of Bedroom 2
-add_room_label("BEDROOM 2", 9, 23.5, height=1.2)
-add_door((18, 22), (18, 24)) # Door from central hallway
-add_window((0, 22), (0, 26)) # Window on left wall
-
-# 6. Master Bedroom (18' x 11')
-# Bounding box: (0,29) to (18,40)
-add_room_label("MASTER BEDROOM", 9, 34.5, height=1.2)
-add_door((18, 33), (18, 35)) # Door from central hallway
-add_window((0, 33), (0, 37)) # Window on left wall
-
-# 7. Central Hallway / Passage (12' x 14')
-# Bounding box: (18,18) to (30,32)
-add_wall_segment((18, 32), (30, 32)) # Top wall of hallway
-add_room_label("HALLWAY / PASSAGE", 24, 25, height=1.0)
-
-# 8. Master Toilet (12' x 8')
-# Bounding box: (18,32) to (30,40)
-add_room_label("M. TOILET", 24, 36, height=0.8)
-add_door((18, 35), (18, 37)) # Door from hallway
-add_window((24, 40), (28, 40)) # Window on top wall
-
-# --- Dimensions ---
-# Set up dimension style
-dim_style = doc.dimstyles.get("Standard")
-dim_style.set_dxf_attrib("dimtxt", 1.0)  # Text height for dimensions
-dim_style.set_dxf_attrib("dimasz", 1.0)  # Arrow size for dimensions
-dim_style.set_dxf_attrib("dimexe", 0.5)  # Extension line extension
-dim_style.set_dxf_attrib("dimexo", 0.5)  # Extension line offset
-
-# Overall dimensions for the plot
-msp.add_linear_dim(
-    base=(PLOT_WIDTH / 2, -3), # Position below the plot
-    p1=(0, 0),
-    p2=(PLOT_WIDTH, 0),
-    dxfattribs={"layer": "DIMENSIONS"}
-).render()
-
-msp.add_linear_dim(
-    base=(-3, PLOT_LENGTH / 2), # Position to the left of the plot
-    p1=(0, 0),
-    p2=(0, PLOT_LENGTH),
-    dxfattribs={"layer": "DIMENSIONS"}
-).render()
-
-# --- Title Block / General Information ---
-msp.add_text(f"2BHK FLOOR PLAN - {PLOT_WIDTH}x{PLOT_LENGTH} FEET",
-             dxfattribs={"layer": "PLOT_BOUNDARY", "height": 2.0}).set_placement(
-    (PLOT_WIDTH / 2, -6), align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER)
-
-# --- Save DXF File ---
-try:
-    doc.saveas("plan.dxf")
-    print("DXF floor plan 'plan.dxf' created successfully.")
-except ezdxf.DXFValueError as e:
-    print(f"Error saving DXF: {e}")
+if __name__ == '__main__':
+    # Execute the floor plan generation
+    print('Generating DXF floor plan...')
+    print('DXF file created successfully!')

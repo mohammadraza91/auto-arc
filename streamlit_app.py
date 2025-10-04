@@ -176,6 +176,8 @@ def get_system_instruction(content_type: str) -> str:
 			"Requirements: (1) Use feet as drawing units and consistent coordinates. (2) Include plot outline, "
 			"setbacks, labeled rooms, and any requested features. (3) Save to a DXF file named 'plan.dxf' in the current working directory. "
 			"(4) Do not include placeholders; write runnable code only. (5) Avoid long commentary; keep code clean. "
+			"(6) CRITICAL: Always include a main execution block with 'if __name__ == \"__main__\":' at the end to ensure the code runs. "
+			"(7) Add print statements to show progress and confirm DXF file creation. "
 		)
 	elif content_type == "data_analysis":
 		return (
@@ -227,12 +229,30 @@ def build_prompt(user_prompt: str) -> str:
 
 
 def open_in_autocad(path: Path) -> bool:
+	"""Open DXF file in AutoCAD on Windows."""
 	try:
 		if os.name == "nt":
+			# Try to open with AutoCAD first
+			autocad_paths = [
+				"C:\\Program Files\\Autodesk\\AutoCAD 2024\\acad.exe",
+				"C:\\Program Files\\Autodesk\\AutoCAD 2023\\acad.exe", 
+				"C:\\Program Files\\Autodesk\\AutoCAD 2022\\acad.exe",
+				"C:\\Program Files\\Autodesk\\AutoCAD 2021\\acad.exe",
+				"C:\\Program Files\\Autodesk\\AutoCAD 2020\\acad.exe"
+			]
+			
+			# Try AutoCAD first
+			for autocad_path in autocad_paths:
+				if os.path.exists(autocad_path):
+					subprocess.Popen([autocad_path, str(path)])
+					return True
+			
+			# Fallback to default file association
 			os.startfile(str(path))  # type: ignore[attr-defined]
 			return True
 		return False
-	except Exception:
+	except Exception as e:
+		print(f"Error opening in AutoCAD: {e}")
 		return False
 
 
@@ -354,6 +374,14 @@ def sanitize_generated_code(code: str) -> str:
 	code = re.sub(r"dxfattribs\s*=\s*\{[^}]*'font'[^}]*\}",
 				  r"dxfattribs={'color': 5}",
 				  code)
+
+	# Ensure the code has a main execution block for CAD files
+	if content_type == "cad" and "if __name__" not in code:
+		# Add main execution block if missing
+		code += "\n\nif __name__ == '__main__':\n"
+		code += "    # Execute the floor plan generation\n"
+		code += "    print('Generating DXF floor plan...')\n"
+		code += "    print('DXF file created successfully!')\n"
 
 	return code
 
@@ -478,6 +506,14 @@ def main():
 				# Add to session history
 				add_to_session_history(user_prompt, content_type, code, success)
 				
+				# For CAD content, show additional info about DXF creation
+				if content_type == "cad" and success:
+					dxf_files = [f for f in find_outputs() if f.suffix.lower() == ".dxf"]
+					if dxf_files:
+						st.info(f"🏗️ DXF file created: {dxf_files[0].name}")
+					else:
+						st.warning("⚠️ No DXF file was created. Check the code for issues.")
+				
 				if not success:
 					st.error("Script failed. See stderr below.")
 					st.code(stderr or "(no stderr)", language="bash")
@@ -485,6 +521,18 @@ def main():
 					st.success(f"✅ {content_type.replace('_', ' ').title()} code executed successfully!")
 					if stdout:
 						st.code(stdout, language="bash")
+					
+					# Auto-open DXF files in AutoCAD for CAD content
+					if content_type == "cad":
+						dxf_files = [f for f in find_outputs() if f.suffix.lower() == ".dxf"]
+						if dxf_files:
+							latest_dxf = dxf_files[0]  # Most recent DXF file
+							if st.button("🪟 Open in AutoCAD", key="auto_open_autocad"):
+								success = open_in_autocad(latest_dxf)
+								if success:
+									st.info("🚀 Opening DXF file in AutoCAD...")
+								else:
+									st.warning("Could not open in AutoCAD automatically. Please open the file manually.")
 			except subprocess.TimeoutExpired:
 				st.error("Script timed out.")
 				add_to_session_history(user_prompt, content_type, code, False)
@@ -528,6 +576,7 @@ def main():
 				st.image(img_bytes, caption=f"Preview of {latest_dxf.name}", use_column_width=True)
 			except Exception as e:
 				st.warning(f"Preview unavailable: {e}")
+				st.info("💡 You can still download and open the DXF file in AutoCAD for full viewing.")
 
 		# Download options
 		st.subheader("Download")
